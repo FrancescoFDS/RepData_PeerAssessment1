@@ -1,25 +1,159 @@
----
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
----
+Activity Monitoring Analysis
+==============================
+*Project 1 of the course "Reproducible Research",
+Data Science Specialization*
+
+*Author: Francesco De Santis*
 
 
-## Loading and preprocessing the data
+## Introduction
+
+This project contains the analysis of the data obtained by a fitness wearable device.
+
+## 1. Importing libraries and data
+
+The following code is used for loading the libraries and the data.
+
+```{r readingdata}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(xtable)
+activityData <- read.csv("activity.csv", header=TRUE) %>% 
+	tibble::as_tibble()
+activityData$date<-as.Date(activityData$date)
+```
 
 
 
-## What is mean total number of steps taken per day?
+## 2. Histogram of the total number of steps taken each day
+
+We first calculate the number of steps taken each day.
+
+```{r dataAnalysis}
+stepsPerDay <- select(activityData, steps, date,interval) %>%
+	filter(!is.na(steps)) %>%
+	group_by(date) %>%
+	summarize(
+		total_steps=sum(steps),
+		mean_steps=mean(steps), 
+		max_steps=max(steps), 
+		max_interval=interval[steps==max_steps])
+```
+
+Now we can draw an histogram of the total number of steps each day. 
+
+```{r histogram}
+ggplot(stepsPerDay, aes(total_steps)) +
+	geom_histogram(bins=30) +
+	labs(x="Total steps per day", 
+		y="Counts", 
+		title="Distribution of the total number of steps taken each day") +
+	theme_classic()
+```
+
+## 3. Mean and median number of steps taken each day
+
+```{r typicalValues}
+meanSteps <- mean(stepsPerDay$total_steps)
+medianSteps <- median(stepsPerDay$total_steps)
+```
+
+The typical values of the distribution are
+
+- **mean**: `r meanSteps`
+- **median**: `r medianSteps`
 
 
+## 4. Average daily activity pattern
 
-## What is the average daily activity pattern?
+Now, let us have a look at the *average daily activity pattern*, i.e. the average number of steps taken in 5-mins intervals, across the day.
 
+```{r timeserie}
+averageStepsPerInterval <- select(activityData, steps, date,interval) %>%
+			filter(!is.na(steps)) %>%
+			group_by(interval) %>%
+			summarize(average_steps=mean(steps))
+ggplot(averageStepsPerInterval, aes(interval,average_steps)) +
+	geom_line() +
+	labs(
+		x="5 Minutes Intervals", 
+		y="Counts", 
+		title="Average daily activity pattern") +
+	theme_classic()
+```
 
+## 5. Maximum of the average daily activity pattern	
 
-## Imputing missing values
+Let us consider the 5 mins interval with the maximum number of steps.
 
+```{r averageMaximumInterval}
+averageMax <- filter(averageStepsPerInterval, average_steps==max(average_steps))
+averageMax
+```
 
+The **interval corresponding to the maximum** is `r averageMax$interval`-`r averageMax$interval+5`, with an average number of `r averageMax$average_steps` steps.
 
-## Are there differences in activity patterns between weekdays and weekends?
+## 6. Replacing Missing Data
+
+The original data contains `r length(activityData[is.na(activityData$steps),]$steps)` out of `r length(activityData$steps)` rows with missing data. In order to deal with missing data, we **replace the missing values with the corresponding value from the Average Daily Actvity pattern**.
+
+```{r missingData_2}
+completeActivityData<-activityData
+for(interval in unique(activityData$interval)){
+	filt1=is.na(completeActivityData$steps) & 
+		completeActivityData$interval==interval
+	filt2=averageStepsPerInterval$interval==interval
+	completeActivityData[filt1,]$steps =
+		as.integer(averageStepsPerInterval[filt2,]$average_steps)
+}
+```
+
+In the histogram below, we show how the replacement of missing data has affected the number of total steps measured every day.
+
+```{r histogramCompleteData}
+missingDb <- mutate(stepsPerDay, type="with Missing Data")
+completeDb <- select(completeActivityData, steps, date,interval) %>%
+	group_by(date) %>%
+	summarize(total_steps=sum(steps)) %>%
+	mutate(stepsPerDay, type="with Complete Data")
+
+oldMean<- meanSteps
+oldMedian <-medianSteps
+newMean <- mean(completeDb$total_steps)
+newMedian <- median(completeDb$total_steps)
+ggplot(rbind(missingDb,completeDb), aes(x=total_steps, fill=type)) +
+	geom_histogram(bins=30) +
+	scale_fill_manual(values=c("#69b3a2", "#404080")) +
+	labs(x="Total steps per day", 
+		y="Counts", 
+		title="Distribution of the total number of steps per day",
+		subtitle="after replacing the missing data",
+		fill="")+
+	theme_classic()
+```
+
+The typical values have changed to
+
+- **mean**: `r newMean`
+- **median**: `r newMedian`
+
+Replacing missing values with the interval averages resulted in a slightly decrease of the typical values. The effect is however minimal, as adding the missing values results in an even increase of the values within *all* the intervals, leaving the shape of the distribution the same. 
+## 7. Average daily activity pattern in weekdays and weekends
+We now differentiate the activity pattern measured during the week from the pattern measured during weekends.
+
+```{r panels, fig.dim = c(12, 6)}
+averageWeek <- select(completeActivityData, steps, date,interval) %>%
+			mutate(weekday = ifelse(format(date, "%a") %in% c("sab","dom"),"Weekends","Weekdays")) %>% 
+			group_by(weekday,interval) %>%
+			summarize(average_steps=mean(steps))
+ggplot(averageWeek, aes(interval, average_steps)) +
+	geom_line() +
+	facet_grid(.~weekday) + 
+    	labs(x="Date", 
+		y="Average steps", 
+		title="Distribution of the average number of steps per 5-mins intervals,",
+		subtitle ="across weekdays and weekends")
+```
+
+The plots show that while during the week the maximum of the activity pattern is in the morning, during the weekends the activity pattern is distributed more evenly along the day.
